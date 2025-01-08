@@ -1,20 +1,23 @@
 import numpy as np
 import argparse
-import onnxruntime as ort
 from swig_decoders import map_batch,ctc_beam_search_decoder_batch,TrieVector, PathTrie
 import multiprocessing
 import torchaudio.compliance.kaldi as kaldi
 import torch, torchaudio
 import yaml
 import os
-import tarfile as tf
+from axengine import InferenceSession
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", "-i", type=str, required=True, help="Input audio file")
-    parser.add_argument("--config", type=str, required=True, help="yaml file in checkpoint path")
-    parser.add_argument("--online", action="store_true")
+    parser.add_argument("--online", required=True, action="store_true")
+
+    parser.add_argument("--config", type=str, default="config.yaml", help="yaml file in checkpoint path")
+    parser.add_argument("--encoder_online", type=str, default="axmodel/encoder_online.axmodel")
+    parser.add_argument("--encoder_offline", type=str, default="axmodel/encoder_offline.axmodel")
+    parser.add_argument("--decoder", type=str, default="axmodel/decoder.axmodel")
     parser.add_argument("--offline_seq_len", type=int, default=1024)
     parser.add_argument("--online_seq_len", type=int, default=67)
     parser.add_argument("--decoder_len", type=int, default=32)
@@ -23,7 +26,6 @@ def get_args():
                             'ctc_greedy_search', 'ctc_prefix_beam_search', 'attention_rescoring'],
                         default='ctc_prefix_beam_search',
                         help='decoding mode')
-    parser.add_argument("--calib_data_path", type=str, default="calibration_dataset", help="Generated calibration data path")
     return parser.parse_args()
 
 
@@ -133,46 +135,31 @@ def run_ort():
 
     decoder = None
     if args.mode == 'attention_rescoring':
-        decoder = ort.InferenceSession("onnx_model/decoder.onnx")
+        decoder = InferenceSession.load_from_model(args.decoder)
 
     if not args.online:
         seq_len = args.offline_seq_len
-        encoder = ort.InferenceSession("onnx_model/encoder_offline.onnx", providers=["CPUExecutionProvider"])
+        encoder = InferenceSession.load_from_model(args.encoder_offline)
         feats = feats[:, :seq_len, :]
         speech_lengths = np.array([feats.shape[1]], dtype=np.int32)
         if feats.shape[1] < seq_len:
             feats = pad_array_along_axis(feats, pad_width=seq_len, axis=1)
 
-        if calib_data_path is not None:
-            speech_path = os.path.join(calib_data_path, "speech")
-            speech_lengths_path = os.path.join(calib_data_path, "speech_lengths")
-            os.makedirs(speech_path, exist_ok=True)
-            os.makedirs(speech_lengths_path, exist_ok=True)
-            np.save(os.path.join(speech_path, "0.npy"), feats)
-            np.save(os.path.join(speech_lengths_path, "0.npy"), speech_lengths)
-
-            tf_speech = tf.open(os.path.join(calib_data_path, "speech.tar.gz"), "w:gz")
-            tf_speech.add(speech_path)
-            tf_speech.close()
-
-            tf_speech = tf.open(os.path.join(calib_data_path, "speech_lengths.tar.gz"), "w:gz")
-            tf_speech.add(speech_lengths_path)
-            tf_speech.close()
-
-        encoder_out, encoder_out_lens, ctc_log_probs, beam_log_probs, beam_log_probs_idx = encoder.run(None, {"speech": feats, "speech_lengths": speech_lengths})
+        outputs = encoder.run(input_feed={"speech": feats, "speech_lengths": speech_lengths})
+        encoder_out, encoder_out_lens, ctc_log_probs, beam_log_probs, beam_log_probs_idx = \
+            outputs["encoder_out"], outputs["encoder_out_lens"], outputs["ctc_log_probs"], outputs["beam_log_probs"], outputs["beam_log_probs_idx"]
 
         results, _ = ctc_decoding(beam_log_probs, beam_log_probs_idx, encoder_out_lens, vocabulary, args.mode)
         if len(results):
             result = "".join(results)
     else:
         seq_len = args.online_seq_len
-        encoder = ort.InferenceSession("onnx_model/encoder_online.onnx", providers=["CPUExecutionProvider"])
+        encoder = InferenceSession.load_from_model(args.encoder_online)
         batch_size = 1
         subsampling = 4
         context = 7
         decoding_chunk_size = 16
         num_decoding_left_chunks = 5
-        supplemental_batch_size = batch_size - feats.shape[0]
 
         stride = subsampling * decoding_chunk_size
         decoding_window = (decoding_chunk_size - 1) * subsampling + context        
@@ -206,19 +193,12 @@ def run_ort():
             encoder_input = {"chunk_lens": chunk_lens, "att_cache": att_cache, "cnn_cache": cnn_cache, 
                             "chunk_xs": chunk_xs, "cache_mask": cache_mask, "offset": offset}
             
-            if calib_data_path is not None:
-                for input_name in encoder_input.keys():
-                    data_path = os.path.join(calib_data_path, input_name)
-                    os.makedirs(data_path, exist_ok=True)
-
-                    np.save(os.path.join(data_path, f"{cur}.npy"), encoder_input[input_name])
-
-                    tf_file = tf.open(os.path.join(calib_data_path, input_name + ".tar.gz"), "w:gz")
-                    tf_file.add(data_path)
-                    tf_file.close()
-
-            outputs = encoder.run(None, encoder_input)
-            chunk_log_probs, chunk_log_probs_idx, chunk_out, chunk_out_lens, offset, att_cache, cnn_cache, cache_mask = outputs
+            outputs = encoder.run(input_feed=encoder_input)
+            chunk_log_probs, chunk_log_probs_idx, chunk_out, chunk_out_lens, offset, att_cache, cnn_cache, cache_mask = \
+                outputs["chunk_log_probs"], outputs["chunk_log_probs_idx"], outputs["chunk_out"], \
+                outputs["chunk_out_lens"], outputs["offset"], outputs["att_cache"], \
+                outputs["cnn_cache"], outputs["cache_mask"]
+            
             chunk_log_probs_idx = chunk_log_probs_idx.astype(np.int32)
             chunk_out_lens = chunk_out_lens.astype(np.int32)
 
@@ -291,18 +271,7 @@ def run_ort():
             "ctc_score": ctc_score
         }
 
-        if calib_data_path is not None:
-            for input_name in decoder_input.keys():
-                data_path = os.path.join(calib_data_path, input_name)
-                os.makedirs(data_path, exist_ok=True)
-
-                np.save(os.path.join(data_path, f"0.npy"), decoder_input[input_name])
-                
-            tf_file = tf.open(os.path.join(calib_data_path, input_name + ".tar.gz"), "w:gz")
-            tf_file.add(data_path)
-            tf_file.close()
-
-        best_index = decoder.run(None, decoder_input)[0]
+        best_index = decoder.run(input_feed=decoder_input)["best_index"]
         best_index = best_index.astype(np.int32)
 
         best_sents = []

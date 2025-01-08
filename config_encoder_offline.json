@@ -1,0 +1,41 @@
+{
+    "model_type": "ONNX",
+    "npu_mode": "NPU3",
+    "quant": {
+      "input_configs": [
+        {
+            "tensor_name": "speech",
+            "calibration_dataset": "./calibration_dataset/speech.tar.gz",
+            "calibration_size": -1,
+            "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "speech_lengths",
+          "calibration_dataset": "./calibration_dataset/speech_lengths.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+      }
+      ],
+      "layer_configs": [
+        {
+            "start_tensor_names": ["DEFAULT"], 
+            "end_tensor_names": ["DEFAULT"], 
+            "data_type": "U8"
+        } 
+      ]
+    },
+    "input_processors": [
+      {
+        "tensor_name": "speech",
+        "src_dtype": "FP32"
+      },
+      {
+        "tensor_name": "speech_lengths",
+        "src_dtype": "S32"
+      }
+    ],
+    "compiler": {
+      "check": 0
+    }
+  }
+  

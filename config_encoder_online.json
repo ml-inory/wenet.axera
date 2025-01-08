@@ -1,0 +1,81 @@
+{
+    "model_type": "ONNX",
+    "npu_mode": "NPU3",
+    "quant": {
+      "input_configs": [
+        {
+            "tensor_name": "chunk_xs",
+            "calibration_dataset": "./calibration_dataset/chunk_xs.tar.gz",
+            "calibration_size": -1,
+            "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "chunk_lens",
+          "calibration_dataset": "./calibration_dataset/chunk_lens.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "offset",
+          "calibration_dataset": "./calibration_dataset/offset.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "att_cache",
+          "calibration_dataset": "./calibration_dataset/att_cache.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "cnn_cache",
+          "calibration_dataset": "./calibration_dataset/cnn_cache.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "cache_mask",
+          "calibration_dataset": "./calibration_dataset/cache_mask.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        }
+      ],
+      "layer_configs": [
+        {
+            "start_tensor_names": ["DEFAULT"], 
+            "end_tensor_names": ["DEFAULT"], 
+            "data_type": "U8"
+        } 
+      ]
+    },
+    "input_processors": [
+      {
+        "tensor_name": "chunk_xs",
+        "src_dtype": "FP32"
+      },
+      {
+        "tensor_name": "chunk_lens",
+        "src_dtype": "S32"
+      },
+      {
+        "tensor_name": "offset",
+        "src_dtype": "S32"
+      },
+      {
+        "tensor_name": "att_cache",
+        "src_dtype": "FP32"
+      },
+      {
+        "tensor_name": "cnn_cache",
+        "src_dtype": "FP32"
+      },
+      {
+        "tensor_name": "cache_mask",
+        "src_dtype": "FP32"
+      }
+    ],
+    "compiler": {
+      "check": 0
+    }
+  }
+  

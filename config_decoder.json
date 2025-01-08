@@ -1,0 +1,81 @@
+{
+    "model_type": "ONNX",
+    "npu_mode": "NPU1",
+    "quant": {
+      "input_configs": [
+        {
+            "tensor_name": "encoder_out",
+            "calibration_dataset": "./calibration_dataset/encoder_out.tar.gz",
+            "calibration_size": -1,
+            "calibration_format": "Numpy"
+        },
+        {
+            "tensor_name": "encoder_out_lens",
+            "calibration_dataset": "./calibration_dataset/encoder_out_lens.tar.gz",
+            "calibration_size": -1,
+            "calibration_format": "Numpy"
+        },
+        {
+            "tensor_name": "hyps_pad_sos_eos",
+            "calibration_dataset": "./calibration_dataset/hyps_pad_sos_eos.tar.gz",
+            "calibration_size": -1,
+            "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "hyps_lens_sos",
+          "calibration_dataset": "./calibration_dataset/hyps_lens_sos.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "r_hyps_pad_sos_eos",
+          "calibration_dataset": "./calibration_dataset/r_hyps_pad_sos_eos.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        },
+        {
+          "tensor_name": "ctc_score",
+          "calibration_dataset": "./calibration_dataset/ctc_score.tar.gz",
+          "calibration_size": -1,
+          "calibration_format": "Numpy"
+        }
+      ],
+      "layer_configs": [
+        {
+            "start_tensor_names": ["DEFAULT"], 
+            "end_tensor_names": ["DEFAULT"], 
+            "data_type": "U8"
+        } 
+      ]
+    },
+    "input_processors": [
+      {
+        "tensor_name": "encoder_out",
+        "src_dtype": "FP32"
+      },
+      {
+        "tensor_name": "encoder_out_lens",
+        "src_dtype": "S32"
+      },
+      {
+        "tensor_name": "hyps_pad_sos_eos",
+        "src_dtype": "S32"
+      },
+      {
+        "tensor_name": "hyps_lens_sos",
+        "src_dtype": "S32"
+      },
+      {
+        "tensor_name": "r_hyps_pad_sos_eos",
+        "src_dtype": "S32"
+      },
+      {
+        "tensor_name": "ctc_score",
+        "src_dtype": "FP32"
+      }
+    ],
+    "compiler": {
+      "check": 0
+    }
+  }
+  

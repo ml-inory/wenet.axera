@@ -20,7 +20,7 @@
         {
             "start_tensor_names": ["DEFAULT"], 
             "end_tensor_names": ["DEFAULT"], 
-            "data_type": "U8"
+            "data_type": "U16"
         } 
       ]
     },

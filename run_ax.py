@@ -1,18 +1,24 @@
 import numpy as np
 import argparse
-from swig_decoders import map_batch,ctc_beam_search_decoder_batch,TrieVector, PathTrie
 import multiprocessing
 import torchaudio.compliance.kaldi as kaldi
 import torch, torchaudio
 import yaml
 import os
 from axengine import InferenceSession
+import sys
+import subprocess  
+arch_output = subprocess.check_output(["arch"])  
+arch = arch_output.decode().strip()  
+sys.dont_write_bytecode = True
+sys.path.append(os.getcwd()+"/swig_decoders_"+arch)
+from swig_decoders import map_batch,ctc_beam_search_decoder_batch,TrieVector, PathTrie
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", "-i", type=str, required=True, help="Input audio file")
-    parser.add_argument("--online", required=True, action="store_true")
+    parser.add_argument("--online", action="store_true")
 
     parser.add_argument("--config", type=str, default="config.yaml", help="yaml file in checkpoint path")
     parser.add_argument("--encoder_online", type=str, default="axmodel/encoder_online.axmodel")
@@ -108,15 +114,50 @@ def pad_array_along_axis(array, pad_width, axis, mode='constant', **kwargs):
     else:
         return array
 
+def numpy_topk(array, k, axis=-1, largest=True):
+    """
+    实现类似于 torch.topk 的功能。
+    
+    参数:
+        array (np.ndarray): 输入的 NumPy 数组。
+        k (int): 返回的最大或最小元素的数量。
+        axis (int): 指定的轴，默认为最后一维。
+        largest (bool): 如果为 True，则返回最大的 k 个元素；如果为 False，则返回最小的 k 个元素。
+        
+    返回:
+        tuple: 一个包含两个数组的元组 (values, indices)。
+               values 包含沿指定轴的最大/最小的 k 个元素，
+               indices 包含这些元素在原数组中的索引。
+    """
+    if largest:
+        # 获取最大的 k 个元素的索引
+        partitioned_indices = np.argpartition(array, -k, axis=axis)
+        topk_indices = np.take(partitioned_indices, range(-k, 0), axis=axis)
+    else:
+        # 获取最小的 k 个元素的索引
+        partitioned_indices = np.argpartition(array, k, axis=axis)
+        topk_indices = np.take(partitioned_indices, range(0, k), axis=axis)
+
+    # 使用 advanced indexing 来获取相应的值
+    topk_values = np.take_along_axis(array, topk_indices, axis=axis)
+
+    # 对结果进行排序以确保它们是按降序（或升序）排列的
+    sorted_indices_in_topk = np.argsort(topk_values, axis=axis)
+    if largest:
+        # 如果我们想要最大的 k 个元素，那么我们需要翻转排序后的索引
+        sorted_indices_in_topk = np.flip(sorted_indices_in_topk, axis=axis)
+
+    # 再次使用 advanced indexing 来根据排序后的索引重新排列 topk 值和索引
+    sorted_topk_values = np.take_along_axis(topk_values, sorted_indices_in_topk, axis=axis)
+    sorted_topk_indices = np.take_along_axis(topk_indices, sorted_indices_in_topk, axis=axis)
+
+    return sorted_topk_values, sorted_topk_indices
+
 
 def run_ort():
     args = get_args()
     print(f"online: {args.online}")
     print(f"mode: {args.mode}")
-    print(f"calib_data_path: {args.calib_data_path}")
-    calib_data_path = args.calib_data_path
-    if calib_data_path is not None:
-        os.makedirs(calib_data_path, exist_ok=True)
 
     with open(args.config, 'r') as fin:
         configs = yaml.load(fin, Loader=yaml.FullLoader)
@@ -148,7 +189,9 @@ def run_ort():
         outputs = encoder.run(input_feed={"speech": feats, "speech_lengths": speech_lengths})
         encoder_out, encoder_out_lens, ctc_log_probs, beam_log_probs, beam_log_probs_idx = \
             outputs["encoder_out"], outputs["encoder_out_lens"], outputs["ctc_log_probs"], outputs["beam_log_probs"], outputs["beam_log_probs_idx"]
-
+        encoder_out_lens = encoder_out_lens.astype(np.int32)
+        encoder_out_lens[0] = np.ones([speech_lengths[0]], dtype=np.int32)[2::2][2::2].sum()
+        beam_log_probs, beam_log_probs_idx = numpy_topk(ctc_log_probs, k=10)
         results, _ = ctc_decoding(beam_log_probs, beam_log_probs_idx, encoder_out_lens, vocabulary, args.mode)
         if len(results):
             result = "".join(results)
@@ -195,7 +238,7 @@ def run_ort():
             
             outputs = encoder.run(input_feed=encoder_input)
             chunk_log_probs, chunk_log_probs_idx, chunk_out, chunk_out_lens, offset, att_cache, cnn_cache, cache_mask = \
-                outputs["chunk_log_probs"], outputs["chunk_log_probs_idx"], outputs["chunk_out"], \
+                outputs["log_probs"], outputs["log_probs_idx"], outputs["chunk_out"], \
                 outputs["chunk_out_lens"], outputs["offset"], outputs["att_cache"], \
                 outputs["cnn_cache"], outputs["cache_mask"]
             

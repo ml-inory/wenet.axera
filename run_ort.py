@@ -14,6 +14,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", "-i", type=str, required=True, help="Input audio file")
     parser.add_argument("--config", type=str, required=True, help="yaml file in checkpoint path")
+    parser.add_argument("--vocab", type=str, required=True, help="units.txt")
     parser.add_argument("--online", action="store_true")
     parser.add_argument("--offline_seq_len", type=int, default=1024)
     parser.add_argument("--online_seq_len", type=int, default=67)
@@ -123,7 +124,7 @@ def run_ort():
     # Load dict
     vocabulary = []
     char_dict = {}
-    with open("vocab.txt", 'r') as fin:
+    with open(args.vocab, 'r') as fin:
         for line in fin:
             arr = line.strip().split()
             assert len(arr) == 2
@@ -160,7 +161,15 @@ def run_ort():
             tf_speech.close()
 
         encoder_out, encoder_out_lens, ctc_log_probs, beam_log_probs, beam_log_probs_idx = encoder.run(None, {"speech": feats, "speech_lengths": speech_lengths})
-
+        # print(f"speech_lengths: {speech_lengths}")
+        # print(encoder_out.shape)
+        # print(f"encoder_out_lens: {encoder_out_lens}")
+        # print(np.ones((speech_lengths[0]), dtype=np.int32)[2::2][2::2].sum())
+        np.save("encoder_out.npy", encoder_out)
+        np.save("encoder_out_lens.npy", encoder_out_lens)
+        np.save("ctc_log_probs.npy", ctc_log_probs)
+        np.save("beam_log_probs.npy", beam_log_probs)
+        np.save("beam_log_probs_idx.npy", beam_log_probs_idx)
         results, _ = ctc_decoding(beam_log_probs, beam_log_probs_idx, encoder_out_lens, vocabulary, args.mode)
         if len(results):
             result = "".join(results)
@@ -298,9 +307,9 @@ def run_ort():
 
                 np.save(os.path.join(data_path, f"0.npy"), decoder_input[input_name])
                 
-            tf_file = tf.open(os.path.join(calib_data_path, input_name + ".tar.gz"), "w:gz")
-            tf_file.add(data_path)
-            tf_file.close()
+                tf_file = tf.open(os.path.join(calib_data_path, input_name + ".tar.gz"), "w:gz")
+                tf_file.add(data_path)
+                tf_file.close()
 
         best_index = decoder.run(None, decoder_input)[0]
         best_index = best_index.astype(np.int32)

@@ -20,7 +20,7 @@ python3 run_ax.py -i demo.wav --config config.yaml --mode ctc_greedy_search/ctc_
 
 ## ONNX导出
 ```
-python export_onnx.py --config 20210601_u2++_conformer_exp_aishell/train.yaml --checkpoint 20210601_u2++_conformer_exp_aishell/final.pt
+python export_onnx.py --config 20220506_u2pp_conformer_exp_wenetspeech/train.yaml --checkpoint 20220506_u2pp_conformer_exp_wenetspeech/final.pt
 ```
 生成onnx_model目录
 
